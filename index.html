@@ -421,7 +421,7 @@
       return ids;
     }
 
-    function fetchGallery(id) {
+    function fetchGalleryOnce(id) {
       var url = PROXY + encodeURIComponent(API + id);
       return fetch(url, { method: 'GET' }).then(function (r) {
         if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -435,6 +435,17 @@
           pages: data.num_pages || 0,
           coverUrl: THUMB_ROOT + data.cover.path
         };
+      });
+    }
+
+    // Retries with exponential backoff (400ms, 1000ms). Total of 3 attempts.
+    function fetchGallery(id, attempts) {
+      attempts = attempts == null ? 3 : attempts;
+      return fetchGalleryOnce(id).catch(function (err) {
+        if (attempts <= 1) throw err;
+        var delay = attempts === 3 ? 400 : 1000;
+        return new Promise(function (resolve) { setTimeout(resolve, delay); })
+          .then(function () { return fetchGallery(id, attempts - 1); });
       });
     }
 
@@ -524,6 +535,8 @@
       });
 
       var loadBtn = el('button', { class: 'btn primary', text: 'Load Covers' });
+      var retryBtn = el('button', { class: 'btn ghost small', text: '↻ Retry failed' });
+      retryBtn.style.display = 'none';
       var status = el('span', { class: 'status' });
       var votePill = el('span', { class: 'vote-pill' });
       votePill.style.display = 'none';
@@ -548,10 +561,57 @@
         refreshVotePill();
       }
 
+      // Resolves a list of {id, slot} entries: replaces each slot with a card or error card.
+      // Returns a promise that resolves to the count of failures.
+      function resolveTargets(targets) {
+        if (!targets.length) return Promise.resolve(0);
+        var done = 0, failed = 0;
+        var total = targets.length;
+        status.textContent = 'Loading 0/' + total + '…';
+        loadBtn.disabled = true;
+        retryBtn.disabled = true;
+        retryBtn.style.display = 'none';
+
+        return new Promise(function (resolve) {
+          targets.forEach(function (t) {
+            fetchGallery(t.id).then(function (info) {
+              var card = makeCard(info, group, function (newVote) {
+                applyVoteUI(newVote);
+              });
+              grid.replaceChild(card, t.slot);
+            }).catch(function () {
+              failed++;
+              grid.replaceChild(makeErrorCard(t.id), t.slot);
+            }).then(function () {
+              done++;
+              if (done < total) {
+                status.textContent = 'Loading ' + done + '/' + total + '…';
+              } else {
+                loadBtn.disabled = false;
+                resolve(failed);
+              }
+            });
+          });
+        });
+      }
+
+      function updateAfter(totalIds, failed) {
+        status.classList.toggle('error', failed > 0);
+        if (failed) {
+          status.textContent = (totalIds - failed) + ' loaded, ' + failed + ' failed';
+          retryBtn.disabled = false;
+          retryBtn.style.display = '';
+        } else {
+          status.textContent = totalIds + ' covers loaded';
+          retryBtn.style.display = 'none';
+        }
+      }
+
       function load() {
         var ids = parseIds(textarea.value);
         grid.innerHTML = '';
         status.classList.remove('error');
+        retryBtn.style.display = 'none';
         if (!ids.length) {
           status.textContent = 'No valid IDs found.';
           loadBtn.textContent = 'Load Covers';
@@ -565,50 +625,44 @@
           refreshVotePill();
         }
 
-        var slots = [];
-        ids.forEach(function () {
-          var s = makeSkeleton();
-          slots.push(s);
-          grid.appendChild(s);
+        var targets = ids.map(function (id) {
+          var slot = makeSkeleton();
+          grid.appendChild(slot);
+          return { id: id, slot: slot };
         });
 
-        var done = 0, failed = 0;
-        status.textContent = 'Loading 0/' + ids.length + '…';
-        loadBtn.disabled = true;
+        resolveTargets(targets).then(function (failed) {
+          loadBtn.textContent = 'Reload';
+          updateAfter(ids.length, failed);
+        });
+      }
 
-        ids.forEach(function (id, idx) {
-          fetchGallery(id).then(function (info) {
-            var card = makeCard(info, group, function (newVote) {
-              applyVoteUI(newVote);
-            });
-            grid.replaceChild(card, slots[idx]);
-          }).catch(function () {
-            failed++;
-            grid.replaceChild(makeErrorCard(id), slots[idx]);
-          }).then(function () {
-            done++;
-            if (done < ids.length) {
-              status.textContent = 'Loading ' + done + '/' + ids.length + '…';
-            } else {
-              loadBtn.disabled = false;
-              loadBtn.textContent = 'Reload';
-              if (failed) {
-                status.textContent = (ids.length - failed) + ' loaded, ' + failed + ' failed';
-                status.classList.add('error');
-              } else {
-                status.textContent = ids.length + ' covers loaded';
-              }
-            }
-          });
+      function retryFailed() {
+        // Find error cards still in the grid and replace them with skeletons.
+        var errorCards = Array.from(grid.querySelectorAll('.card.error'));
+        if (!errorCards.length) {
+          retryBtn.style.display = 'none';
+          return;
+        }
+        var targets = errorCards.map(function (errCard) {
+          var id = (errCard.querySelector('.err-id').textContent || '').replace(/^#/, '');
+          var slot = makeSkeleton();
+          grid.replaceChild(slot, errCard);
+          return { id: id, slot: slot };
+        });
+        var totalIds = parseIds(textarea.value).length;
+        resolveTargets(targets).then(function (stillFailed) {
+          updateAfter(totalIds, stillFailed);
         });
       }
 
       loadBtn.addEventListener('click', load);
+      retryBtn.addEventListener('click', retryFailed);
 
       var groupEl = el('section', { class: 'group', 'data-group-id': group.id }, [
         el('div', { class: 'group-head' }, [labelInput, removeBtn]),
         textarea,
-        el('div', { class: 'group-actions' }, [loadBtn, status, votePill]),
+        el('div', { class: 'group-actions' }, [loadBtn, retryBtn, status, votePill]),
         grid
       ]);
 
