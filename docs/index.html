@@ -1,0 +1,756 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="referrer" content="no-referrer" />
+  <title>Community Reading Poll</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f0f11;
+      --surface: #1a1a1f;
+      --surface-2: #232329;
+      --surface-3: #2c2c34;
+      --border: #2e2e36;
+      --border-strong: #3a3a44;
+      --text: #e9e9ee;
+      --text-dim: #9a9aa6;
+      --accent: #ff5e7e;
+      --accent-hover: #ff7d96;
+      --accent-soft: rgba(255, 94, 126, 0.18);
+      --danger: #c8455a;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    html, body { background: var(--bg); color: var(--text); font-family: var(--sans); min-height: 100vh; }
+    body { padding: 24px 20px 80px; }
+    .page { max-width: 1400px; margin: 0 auto; }
+
+    header.page-head {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 16px; flex-wrap: wrap;
+      margin-bottom: 24px; padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    header.page-head h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
+    header.page-head .sub { color: var(--text-dim); font-size: 13px; margin-top: 4px; }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: var(--surface-2); color: var(--text);
+      border: 1px solid var(--border-strong);
+      padding: 8px 14px; border-radius: 6px;
+      font-size: 13px; font-family: inherit; cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .btn:hover { background: var(--surface-3); border-color: #45454f; }
+    .btn.primary {
+      background: var(--accent); border-color: var(--accent);
+      color: #1a0a10; font-weight: 600;
+    }
+    .btn.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+    .btn.danger { color: var(--danger); border-color: #4a2530; }
+    .btn.danger:hover { background: #2a1218; border-color: var(--danger); }
+    .btn.ghost {
+      background: transparent;
+      border-color: var(--border);
+      color: var(--text-dim);
+    }
+    .btn.ghost:hover { color: var(--text); border-color: var(--border-strong); }
+    .btn.small { padding: 4px 10px; font-size: 12px; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* ─── Round (parent container) ─────────────────────────────── */
+    .round {
+      border: 1px solid var(--border-strong);
+      border-radius: 12px;
+      margin-bottom: 28px;
+      background: #131318;
+      overflow: hidden;
+    }
+    .round-head {
+      display: flex; align-items: center; gap: 10px;
+      padding: 14px 18px;
+      background: linear-gradient(180deg, #1d1d24, #16161c);
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      user-select: none;
+    }
+    .round.collapsed .round-head { border-bottom-color: transparent; }
+    .round-caret {
+      display: inline-block; width: 14px; text-align: center;
+      color: var(--text-dim); font-size: 11px;
+      transition: transform 0.18s ease;
+      flex: 0 0 auto;
+    }
+    .round.collapsed .round-caret { transform: rotate(-90deg); }
+    .round-name {
+      flex: 1;
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--text);
+      font-size: 17px; font-weight: 600; letter-spacing: -0.005em;
+      padding: 4px 8px; border-radius: 4px;
+      font-family: inherit;
+      min-width: 0;
+    }
+    .round-name:hover { border-color: var(--border); }
+    .round-name:focus {
+      border-color: var(--accent); outline: none;
+      background: var(--surface-2);
+    }
+    .round-meta {
+      color: var(--text-dim); font-size: 12px; font-family: var(--mono);
+      flex: 0 0 auto;
+    }
+    .round-actions { display: flex; gap: 8px; align-items: center; flex: 0 0 auto; }
+    .round-body { padding: 16px 18px 18px; }
+    .round.collapsed .round-body { display: none; }
+    .round-add-group { display: flex; justify-content: center; margin-top: 4px; }
+
+    /* ─── Group ────────────────────────────────────────────────── */
+    .group {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 18px;
+      margin-bottom: 16px;
+    }
+    .group-head {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; margin-bottom: 12px;
+    }
+    .group-label {
+      font-size: 16px; font-weight: 600;
+      background: transparent; color: var(--text);
+      border: 1px solid transparent;
+      padding: 4px 8px; border-radius: 4px;
+      font-family: inherit;
+      min-width: 120px;
+    }
+    .group-label:hover { border-color: var(--border); }
+    .group-label:focus { border-color: var(--accent); outline: none; background: var(--surface-2); }
+
+    textarea.links {
+      width: 100%; min-height: 80px;
+      background: #0a0a0d; color: var(--text);
+      border: 1px solid var(--border); border-radius: 6px;
+      padding: 10px 12px;
+      font-family: var(--mono); font-size: 12.5px; line-height: 1.5;
+      resize: vertical;
+    }
+    textarea.links:focus { border-color: var(--accent); outline: none; }
+
+    .group-actions {
+      display: flex; align-items: center; gap: 12px;
+      margin-top: 10px; flex-wrap: wrap;
+    }
+    .status { color: var(--text-dim); font-size: 12.5px; font-family: var(--mono); }
+    .status.error { color: #ff8b9c; }
+    .vote-pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-family: var(--mono); font-size: 11.5px;
+      border: 1px solid rgba(255,94,126,0.35);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 12px;
+      margin-top: 16px;
+    }
+    .grid:empty { margin-top: 0; }
+
+    /* ─── Card ─────────────────────────────────────────────────── */
+    .card {
+      position: relative;
+      display: flex; flex-direction: column;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      text-decoration: none;
+      color: inherit;
+      transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
+    }
+    .card:hover {
+      transform: translateY(-2px);
+      border-color: var(--accent);
+      box-shadow: 0 6px 16px rgba(0,0,0,0.4);
+    }
+    .card.voted {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px var(--accent), 0 6px 18px rgba(255,94,126,0.18);
+    }
+    .card .cover-wrap {
+      width: 100%; aspect-ratio: 7 / 10;
+      background: #0a0a0d; overflow: hidden; position: relative;
+    }
+    .card .cover-wrap img {
+      width: 100%; height: 100%; object-fit: cover; display: block;
+    }
+    .card .meta {
+      padding: 8px 10px 10px;
+      display: flex; flex-direction: column; gap: 4px; flex: 1;
+    }
+    .card .title {
+      font-size: 12.5px; line-height: 1.35;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+      overflow: hidden;
+      min-height: 2.7em;
+    }
+    .card .badges {
+      display: flex; gap: 6px;
+      font-size: 11px; color: var(--text-dim);
+      font-family: var(--mono); margin-top: auto;
+    }
+    .card .badges .id { color: var(--accent); }
+
+    /* Vote button overlay */
+    .vote-btn {
+      position: absolute;
+      top: 6px; left: 6px;
+      width: 26px; height: 26px;
+      border-radius: 50%;
+      border: 2px solid rgba(255,255,255,0.7);
+      background: rgba(0,0,0,0.5);
+      backdrop-filter: blur(4px);
+      cursor: pointer;
+      z-index: 2;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.15s;
+      padding: 0;
+    }
+    .vote-btn:hover {
+      border-color: var(--accent);
+      background: rgba(0,0,0,0.7);
+      transform: scale(1.08);
+    }
+    .vote-btn .dot {
+      width: 12px; height: 12px;
+      border-radius: 50%;
+      background: transparent;
+      transition: background 0.15s;
+    }
+    .card.voted .vote-btn { border-color: var(--accent); background: var(--accent); }
+    .card.voted .vote-btn .dot { background: #1a0a10; }
+
+    /* Skeleton */
+    .skel {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      display: flex; flex-direction: column;
+    }
+    .skel .cover-wrap { width: 100%; aspect-ratio: 7/10; }
+    .skel .meta { padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 6px; }
+    .skel .line { height: 10px; background: #2a2a32; border-radius: 3px; }
+    .skel .line.short { width: 60%; }
+    .shimmer { position: relative; overflow: hidden; background: #1f1f26; }
+    .shimmer::after {
+      content: ''; position: absolute; inset: 0;
+      background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.04) 50%, transparent 100%);
+      animation: shimmer 1.4s infinite;
+    }
+    @keyframes shimmer {
+      0% { transform: translateX(-100%); }
+      100% { transform: translateX(100%); }
+    }
+
+    /* Error card */
+    .card.error {
+      padding: 12px; gap: 6px;
+      border-color: #4a2530; background: #1a0e12;
+      flex-direction: column;
+    }
+    .card.error .err-id { font-family: var(--mono); font-size: 12px; color: var(--accent); }
+    .card.error .err-msg { font-size: 11.5px; color: var(--text-dim); }
+
+    .footer-add {
+      display: flex; justify-content: center;
+      margin-top: 8px;
+    }
+
+    .disclaimer {
+      margin-top: 32px; padding: 14px 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 12px; color: var(--text-dim); line-height: 1.6;
+    }
+    .disclaimer code {
+      font-family: var(--mono);
+      background: var(--surface-2);
+      padding: 1px 5px; border-radius: 3px;
+      color: var(--text);
+    }
+
+    @media (max-width: 600px) {
+      body { padding: 16px 12px 60px; }
+      .grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; }
+      .group { padding: 14px; }
+      .round-body { padding: 12px; }
+      .round-head { padding: 12px; gap: 6px; flex-wrap: wrap; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="page-head">
+      <div>
+        <h1>Community Reading Poll</h1>
+        <div class="sub">Organize entries into Rounds &amp; Groups. Vote one per group (click again to abstain).</div>
+      </div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn ghost" id="reset-all" title="Clear saved state and restore seed">Reset</button>
+        <button class="btn primary" id="add-round-top">+ Add Round</button>
+      </div>
+    </header>
+
+    <main id="rounds"></main>
+
+    <div class="footer-add">
+      <button class="btn primary" id="add-round-bottom">+ Add Round</button>
+    </div>
+
+    <div class="disclaimer">
+      Front-end gallery tool that fetches publicly available cover thumbnails and metadata from
+      nhentai's v2 JSON API via a CORS proxy. State (rounds, groups, links, votes, collapsed/labels)
+      is cached locally in your browser via <code>localStorage</code>. No server, no accounts.
+    </div>
+  </div>
+
+  <script>
+  (function () {
+    'use strict';
+
+    // ─── Config ───────────────────────────────────────────────────
+    var PROXY = 'https://corsproxy.io/?url=';
+    var API = 'https://nhentai.net/api/v2/galleries/';
+    var THUMB_ROOT = 'https://t.nhentai.net/';
+    var STORAGE_KEY = 'doujins-state-v1';
+
+    var SEED_GROUPS = [
+      ['273216','102839','338327','608403','622842'],
+      ['558657','118282','328002','407709','217489'],
+      ['97058','323640','167586','596543','639830'],
+      ['398474','492264','309975','552888','427171'],
+      ['424601','423400','257967','351920','335142','562709']
+    ];
+
+    function makeSeedState() {
+      var groups = SEED_GROUPS.map(function (ids, i) {
+        return {
+          id: 'g_seed_' + (i + 1),
+          name: 'Group ' + (i + 1),
+          text: ids.map(function (id) { return 'https://nhentai.net/g/' + id; }).join('\n'),
+          vote: null
+        };
+      });
+      return {
+        v: 1,
+        rounds: [{
+          id: 'r_seed_1',
+          name: 'Week 2 Round 1',
+          collapsed: false,
+          groups: groups
+        }],
+        seq: { round: 1, group: SEED_GROUPS.length }
+      };
+    }
+
+    // ─── Persistence ─────────────────────────────────────────────
+    function loadState() {
+      try {
+        var raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return makeSeedState();
+        var parsed = JSON.parse(raw);
+        if (!parsed || !Array.isArray(parsed.rounds)) return makeSeedState();
+        return parsed;
+      } catch (e) { return makeSeedState(); }
+    }
+    var saveTimer = null;
+    function saveState() {
+      if (saveTimer) clearTimeout(saveTimer);
+      saveTimer = setTimeout(function () {
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+        catch (e) { /* quota or disabled — ignore */ }
+      }, 200);
+    }
+
+    var state = loadState();
+
+    function nextId(kind) {
+      state.seq = state.seq || { round: 0, group: 0 };
+      state.seq[kind] = (state.seq[kind] || 0) + 1;
+      return kind[0] + '_' + Date.now().toString(36) + '_' + state.seq[kind];
+    }
+
+    // ─── Helpers ──────────────────────────────────────────────────
+    function el(tag, attrs, children) {
+      var n = document.createElement(tag);
+      if (attrs) for (var k in attrs) {
+        if (k === 'class') n.className = attrs[k];
+        else if (k === 'text') n.textContent = attrs[k];
+        else n.setAttribute(k, attrs[k]);
+      }
+      if (children) children.forEach(function (c) { if (c) n.appendChild(c); });
+      return n;
+    }
+
+    function parseIds(raw) {
+      if (!raw) return [];
+      var tokens = raw.split(/[\s,]+/);
+      var ids = [], seen = {};
+      for (var i = 0; i < tokens.length; i++) {
+        var t = tokens[i].trim();
+        if (!t) continue;
+        var m = t.match(/(\d{2,7})/);
+        if (!m) continue;
+        var id = m[1];
+        if (seen[id]) continue;
+        seen[id] = 1;
+        ids.push(id);
+      }
+      return ids;
+    }
+
+    function fetchGallery(id) {
+      var url = PROXY + encodeURIComponent(API + id);
+      return fetch(url, { method: 'GET' }).then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      }).then(function (data) {
+        if (!data || !data.cover || !data.cover.path) throw new Error('Invalid response');
+        var title = (data.title && (data.title.pretty || data.title.english || data.title.japanese)) || ('#' + id);
+        return {
+          id: id,
+          title: title,
+          pages: data.num_pages || 0,
+          coverUrl: THUMB_ROOT + data.cover.path
+        };
+      });
+    }
+
+    // ─── Card rendering ───────────────────────────────────────────
+    function makeSkeleton() {
+      return el('div', { class: 'skel' }, [
+        el('div', { class: 'cover-wrap shimmer' }),
+        el('div', { class: 'meta' }, [
+          el('div', { class: 'line shimmer' }),
+          el('div', { class: 'line short shimmer' })
+        ])
+      ]);
+    }
+
+    function makeCard(info, group, onVoteChange) {
+      var voteBtn = el('button', {
+        class: 'vote-btn', type: 'button',
+        title: 'Vote for this entry (click again to abstain)',
+        'aria-label': 'Toggle vote'
+      }, [el('span', { class: 'dot' })]);
+
+      var img = el('img', {
+        src: info.coverUrl, alt: info.title,
+        loading: 'lazy', referrerpolicy: 'no-referrer'
+      });
+
+      var card = el('a', {
+        class: 'card',
+        href: 'https://nhentai.net/g/' + info.id + '/',
+        target: '_blank', rel: 'noopener noreferrer',
+        'data-id': info.id
+      }, [
+        voteBtn,
+        el('div', { class: 'cover-wrap' }, [img]),
+        el('div', { class: 'meta' }, [
+          el('div', { class: 'title', text: info.title }),
+          el('div', { class: 'badges' }, [
+            el('span', { class: 'id', text: '#' + info.id }),
+            el('span', { text: info.pages + 'p' })
+          ])
+        ])
+      ]);
+
+      if (group.vote === info.id) card.classList.add('voted');
+
+      voteBtn.addEventListener('click', function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        var newVote = group.vote === info.id ? null : info.id;
+        group.vote = newVote;
+        onVoteChange(newVote);
+        saveState();
+      });
+
+      return card;
+    }
+
+    function makeErrorCard(id) {
+      return el('div', { class: 'card error' }, [
+        el('div', { class: 'err-id', text: '#' + id }),
+        el('div', { class: 'err-msg', text: 'Failed to load' })
+      ]);
+    }
+
+    // ─── Group component ─────────────────────────────────────────
+    function renderGroup(round, group) {
+      var labelInput = el('input', {
+        class: 'group-label', type: 'text',
+        value: group.name, 'aria-label': 'Group name'
+      });
+      labelInput.addEventListener('input', function () {
+        group.name = labelInput.value;
+        saveState();
+      });
+
+      var removeBtn = el('button', { class: 'btn danger small', text: '✕ Remove group' });
+
+      var textarea = el('textarea', {
+        class: 'links',
+        placeholder: 'Paste nhentai URLs or IDs (newline, comma, or space separated)…',
+        spellcheck: 'false'
+      });
+      textarea.value = group.text || '';
+      textarea.addEventListener('input', function () {
+        group.text = textarea.value;
+        saveState();
+      });
+
+      var loadBtn = el('button', { class: 'btn primary', text: 'Load Covers' });
+      var status = el('span', { class: 'status' });
+      var votePill = el('span', { class: 'vote-pill' });
+      votePill.style.display = 'none';
+      var grid = el('div', { class: 'grid' });
+
+      function refreshVotePill() {
+        if (group.vote) {
+          votePill.textContent = 'Voted: #' + group.vote;
+          votePill.style.display = '';
+        } else {
+          votePill.style.display = 'none';
+        }
+      }
+      refreshVotePill();
+
+      function applyVoteUI(votedId) {
+        Array.from(grid.querySelectorAll('.card')).forEach(function (c) {
+          if (c.classList.contains('error')) return;
+          if (c.getAttribute('data-id') === votedId) c.classList.add('voted');
+          else c.classList.remove('voted');
+        });
+        refreshVotePill();
+      }
+
+      function load() {
+        var ids = parseIds(textarea.value);
+        grid.innerHTML = '';
+        status.classList.remove('error');
+        if (!ids.length) {
+          status.textContent = 'No valid IDs found.';
+          loadBtn.textContent = 'Load Covers';
+          return;
+        }
+
+        // Drop vote if it's no longer in this group
+        if (group.vote && ids.indexOf(group.vote) === -1) {
+          group.vote = null;
+          saveState();
+          refreshVotePill();
+        }
+
+        var slots = [];
+        ids.forEach(function () {
+          var s = makeSkeleton();
+          slots.push(s);
+          grid.appendChild(s);
+        });
+
+        var done = 0, failed = 0;
+        status.textContent = 'Loading 0/' + ids.length + '…';
+        loadBtn.disabled = true;
+
+        ids.forEach(function (id, idx) {
+          fetchGallery(id).then(function (info) {
+            var card = makeCard(info, group, function (newVote) {
+              applyVoteUI(newVote);
+            });
+            grid.replaceChild(card, slots[idx]);
+          }).catch(function () {
+            failed++;
+            grid.replaceChild(makeErrorCard(id), slots[idx]);
+          }).then(function () {
+            done++;
+            if (done < ids.length) {
+              status.textContent = 'Loading ' + done + '/' + ids.length + '…';
+            } else {
+              loadBtn.disabled = false;
+              loadBtn.textContent = 'Reload';
+              if (failed) {
+                status.textContent = (ids.length - failed) + ' loaded, ' + failed + ' failed';
+                status.classList.add('error');
+              } else {
+                status.textContent = ids.length + ' covers loaded';
+              }
+            }
+          });
+        });
+      }
+
+      loadBtn.addEventListener('click', load);
+
+      var groupEl = el('section', { class: 'group', 'data-group-id': group.id }, [
+        el('div', { class: 'group-head' }, [labelInput, removeBtn]),
+        textarea,
+        el('div', { class: 'group-actions' }, [loadBtn, status, votePill]),
+        grid
+      ]);
+
+      removeBtn.addEventListener('click', function () {
+        var hasContent = (group.text && group.text.trim()) || group.vote;
+        if (hasContent && !confirm('Remove "' + group.name + '"? Its covers and vote will be discarded.')) return;
+        round.groups = round.groups.filter(function (g) { return g.id !== group.id; });
+        groupEl.remove();
+        saveState();
+      });
+
+      // Auto-load if there are IDs
+      if (parseIds(group.text).length) {
+        setTimeout(load, 0);
+      }
+
+      return groupEl;
+    }
+
+    // ─── Round component ─────────────────────────────────────────
+    function renderRound(round) {
+      var caret = el('span', { class: 'round-caret', text: '▼' });
+      var nameInput = el('input', {
+        class: 'round-name', type: 'text',
+        value: round.name, 'aria-label': 'Round name'
+      });
+      nameInput.addEventListener('input', function () {
+        round.name = nameInput.value;
+        saveState();
+      });
+      nameInput.addEventListener('click', function (e) { e.stopPropagation(); });
+
+      var meta = el('span', { class: 'round-meta' });
+      function updateMeta() {
+        var n = round.groups.length;
+        meta.textContent = n + (n === 1 ? ' group' : ' groups');
+      }
+      updateMeta();
+
+      var removeBtn = el('button', { class: 'btn danger small', text: '✕ Remove round' });
+      removeBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var hasContent = round.groups.some(function (g) { return (g.text && g.text.trim()) || g.vote; });
+        if (hasContent && !confirm('Remove round "' + round.name + '" and all its groups?')) return;
+        state.rounds = state.rounds.filter(function (r) { return r.id !== round.id; });
+        roundEl.remove();
+        saveState();
+      });
+
+      var actions = el('div', { class: 'round-actions' }, [removeBtn]);
+      var head = el('div', { class: 'round-head' }, [caret, nameInput, meta, actions]);
+
+      var groupsContainer = el('div');
+      round.groups.forEach(function (g) {
+        groupsContainer.appendChild(renderGroup(round, g));
+      });
+
+      var addGroupBtn = el('button', { class: 'btn ghost', text: '+ Add Group' });
+      addGroupBtn.addEventListener('click', function () {
+        var g = {
+          id: nextId('group'),
+          name: 'Group ' + (round.groups.length + 1),
+          text: '',
+          vote: null
+        };
+        round.groups.push(g);
+        var gEl = renderGroup(round, g);
+        groupsContainer.appendChild(gEl);
+        updateMeta();
+        saveState();
+        var ta = gEl.querySelector('textarea.links');
+        if (ta) ta.focus();
+        gEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      });
+
+      var body = el('div', { class: 'round-body' }, [
+        groupsContainer,
+        el('div', { class: 'round-add-group' }, [addGroupBtn])
+      ]);
+
+      var roundEl = el('section', {
+        class: 'round' + (round.collapsed ? ' collapsed' : ''),
+        'data-round-id': round.id
+      }, [head, body]);
+
+      var observer = new MutationObserver(updateMeta);
+      observer.observe(groupsContainer, { childList: true });
+
+      head.addEventListener('click', function (e) {
+        if (e.target.closest('input, button')) return;
+        round.collapsed = !round.collapsed;
+        roundEl.classList.toggle('collapsed', round.collapsed);
+        saveState();
+      });
+
+      return roundEl;
+    }
+
+    // ─── Top-level render ────────────────────────────────────────
+    var roundsEl = document.getElementById('rounds');
+
+    function renderAll() {
+      roundsEl.innerHTML = '';
+      state.rounds.forEach(function (r) {
+        roundsEl.appendChild(renderRound(r));
+      });
+    }
+
+    function addRound() {
+      var r = {
+        id: nextId('round'),
+        name: 'Round ' + (state.rounds.length + 1),
+        collapsed: false,
+        groups: [{
+          id: nextId('group'),
+          name: 'Group 1',
+          text: '',
+          vote: null
+        }]
+      };
+      state.rounds.push(r);
+      var rEl = renderRound(r);
+      roundsEl.appendChild(rEl);
+      saveState();
+      rEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      var ni = rEl.querySelector('.round-name');
+      if (ni) { ni.focus(); ni.select(); }
+    }
+
+    document.getElementById('add-round-top').addEventListener('click', addRound);
+    document.getElementById('add-round-bottom').addEventListener('click', addRound);
+
+    document.getElementById('reset-all').addEventListener('click', function () {
+      if (!confirm('Reset everything? This clears all saved rounds, groups, links, and votes, then restores the default seed.')) return;
+      try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+      state = makeSeedState();
+      saveState();
+      renderAll();
+    });
+
+    renderAll();
+  })();
+  </script>
+</body>
+</html>
