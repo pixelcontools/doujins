@@ -298,6 +298,42 @@
       .round-body { padding: 12px; }
       .round-head { padding: 12px; gap: 6px; flex-wrap: wrap; }
     }
+
+    /* Toast notifications */
+    #toasts {
+      position: fixed; top: 16px; right: 16px;
+      display: flex; flex-direction: column; gap: 8px;
+      z-index: 9999; pointer-events: none;
+      max-width: calc(100vw - 32px);
+    }
+    .toast {
+      pointer-events: auto;
+      display: flex; align-items: flex-start; gap: 10px;
+      background: var(--surface-2);
+      border: 1px solid var(--border-strong);
+      border-left: 3px solid var(--accent);
+      border-radius: 8px;
+      padding: 10px 12px 10px 14px;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.45);
+      min-width: 240px; max-width: 380px;
+      font-size: 13px; color: var(--text);
+      animation: toastIn 0.18s ease-out;
+    }
+    .toast.info { border-left-color: #6cb2ff; }
+    .toast.warn { border-left-color: #ffb86c; }
+    .toast.error { border-left-color: var(--danger); }
+    .toast .toast-msg { flex: 1; line-height: 1.4; word-break: break-word; }
+    .toast .toast-close {
+      background: transparent; border: none; cursor: pointer;
+      color: var(--text-dim); font-size: 16px; line-height: 1;
+      padding: 2px 4px; border-radius: 3px;
+      flex: 0 0 auto;
+    }
+    .toast .toast-close:hover { color: var(--text); background: var(--surface-3); }
+    @keyframes toastIn {
+      from { transform: translateX(20px); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
   </style>
 </head>
 <body>
@@ -318,6 +354,8 @@
     <div class="footer-add">
       <button class="btn primary" id="add-round-bottom">+ Add Round</button>
     </div>
+
+    <div id="toasts" aria-live="polite"></div>
 
     <div class="disclaimer">
       Front-end gallery tool that fetches publicly available cover thumbnails and metadata from
@@ -419,6 +457,91 @@
         ids.push(id);
       }
       return ids;
+    }
+
+    // ─── Share / import (URL ?r=...) ─────────────────────────────
+    // Compact format (then base64url-encoded):
+    //   roundName | groupName1~id1,id2,id3 | groupName2~id1,id2 | ...
+    // Names are URI-encoded so they can safely contain | or ~.
+    function b64urlEncode(str) {
+      var b64 = btoa(unescape(encodeURIComponent(str)));
+      return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
+    function b64urlDecode(s) {
+      var b64 = s.replace(/-/g, '+').replace(/_/g, '/');
+      while (b64.length % 4) b64 += '=';
+      return decodeURIComponent(escape(atob(b64)));
+    }
+    function encodeRound(round) {
+      var parts = [encodeURIComponent(round.name || '')];
+      round.groups.forEach(function (g) {
+        var ids = parseIds(g.text);
+        parts.push(encodeURIComponent(g.name || '') + '~' + ids.join(','));
+      });
+      return b64urlEncode(parts.join('|'));
+    }
+    function decodeRound(param) {
+      try {
+        var raw = b64urlDecode(param);
+        var parts = raw.split('|');
+        if (!parts.length) return null;
+        var name = decodeURIComponent(parts[0]);
+        var groups = parts.slice(1).map(function (p) {
+          var idx = p.indexOf('~');
+          var gname = idx === -1 ? p : p.slice(0, idx);
+          var idsStr = idx === -1 ? '' : p.slice(idx + 1);
+          var ids = idsStr.split(',').filter(function (x) { return /^\d{2,7}$/.test(x); });
+          return { name: decodeURIComponent(gname), ids: ids };
+        });
+        if (!groups.length) return null;
+        return { name: name, groups: groups };
+      } catch (e) { return null; }
+    }
+    function buildShareUrl(round) {
+      var origin = location.origin + location.pathname.replace(/\/?$/, '/');
+      return origin + '?r=' + encodeRound(round);
+    }
+
+    // ─── Toast ────────────────────────────────────────────────────
+    var toastsEl = document.getElementById('toasts');
+    function toast(msg, opts) {
+      opts = opts || {};
+      var kind = opts.kind || 'info';
+      var t = el('div', { class: 'toast ' + kind, role: 'status' }, [
+        el('div', { class: 'toast-msg', text: msg })
+      ]);
+      var close = el('button', { class: 'toast-close', type: 'button', 'aria-label': 'Dismiss' });
+      close.textContent = '\u00d7';
+      t.appendChild(close);
+      toastsEl.appendChild(t);
+      var timer = null;
+      function dismiss() {
+        if (timer) clearTimeout(timer);
+        if (t.parentNode) t.parentNode.removeChild(t);
+      }
+      close.addEventListener('click', dismiss);
+      if (opts.timeout !== 0) {
+        timer = setTimeout(dismiss, opts.timeout || 6000);
+      }
+      return dismiss;
+    }
+
+    function copyToClipboard(text) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        return navigator.clipboard.writeText(text);
+      }
+      // Fallback
+      return new Promise(function (resolve, reject) {
+        try {
+          var ta = document.createElement('textarea');
+          ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          var ok = document.execCommand('copy');
+          document.body.removeChild(ta);
+          ok ? resolve() : reject(new Error('execCommand failed'));
+        } catch (e) { reject(e); }
+      });
     }
 
     function fetchGalleryOnce(id) {
@@ -712,7 +835,20 @@
         saveState();
       });
 
-      var actions = el('div', { class: 'round-actions' }, [removeBtn]);
+      var shareBtn = el('button', { class: 'btn ghost small', text: '🔗 Share' });
+      shareBtn.title = 'Copy a link that recreates this round';
+      shareBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var url = buildShareUrl(round);
+        copyToClipboard(url).then(function () {
+          toast('Share link copied to clipboard', { kind: 'info' });
+        }).catch(function () {
+          // Fallback: show URL inline so user can copy manually
+          toast('Copy failed — link: ' + url, { kind: 'warn', timeout: 12000 });
+        });
+      });
+
+      var actions = el('div', { class: 'round-actions' }, [shareBtn, removeBtn]);
       var head = el('div', { class: 'round-head' }, [caret, nameInput, meta, actions]);
 
       var groupsContainer = el('div');
@@ -804,6 +940,56 @@
     });
 
     renderAll();
+
+    // ─── Import round from ?r=... ────────────────────────────────
+    (function importFromUrl() {
+      var match = location.search.match(/[?&]r=([^&]+)/);
+      if (!match) return;
+      var decoded = decodeRound(match[1]);
+      // Always strip the param so refreshes don't re-trigger
+      try {
+        var clean = location.pathname + location.hash;
+        history.replaceState(null, '', clean);
+      } catch (e) { /* ignore */ }
+
+      if (!decoded) {
+        toast('Invalid share link', { kind: 'error' });
+        return;
+      }
+
+      // Check if a round with this name already exists (case-insensitive, trimmed)
+      var existingName = decoded.name.trim().toLowerCase();
+      var exists = state.rounds.some(function (r) {
+        return (r.name || '').trim().toLowerCase() === existingName;
+      });
+      if (exists) {
+        toast('Round "' + decoded.name + '" already exists — not added', { kind: 'warn' });
+        return;
+      }
+
+      // Add at the bottom
+      var newRound = {
+        id: nextId('round'),
+        name: decoded.name || ('Round ' + (state.rounds.length + 1)),
+        collapsed: false,
+        groups: decoded.groups.map(function (g, i) {
+          return {
+            id: nextId('group'),
+            name: g.name || ('Group ' + (i + 1)),
+            text: g.ids.map(function (id) { return 'https://nhentai.net/g/' + id; }).join('\n'),
+            vote: null
+          };
+        })
+      };
+      state.rounds.push(newRound);
+      saveState();
+      var rEl = renderRound(newRound);
+      roundsEl.appendChild(rEl);
+      toast('Loaded round: ' + newRound.name, { kind: 'info' });
+      setTimeout(function () {
+        rEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 50);
+    })();
   })();
   </script>
 </body>
