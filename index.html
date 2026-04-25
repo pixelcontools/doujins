@@ -1065,6 +1065,7 @@
 
     function closeModal() {
       modalBackdrop.classList.remove('open');
+      document.body.style.overflow = '';
       modalBodyEl.innerHTML = '';
       modalNameEl.textContent = '';
       modalSummaryEl.textContent = '';
@@ -1176,6 +1177,7 @@
       document.addEventListener('keydown', modalKeydownHandler);
 
       modalBackdrop.classList.add('open');
+      document.body.style.overflow = 'hidden';
       modalBodyEl.scrollTop = 0;
     }
 
