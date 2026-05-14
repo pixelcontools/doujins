@@ -271,6 +271,19 @@
     }
     .card.error .err-id { font-family: var(--mono); font-size: 12px; color: var(--accent); }
     .card.error .err-msg { font-size: 11.5px; color: var(--text-dim); }
+    .card.error .retry-btn {
+      margin-top: 6px;
+      background: transparent;
+      border: 1px solid #4a2530;
+      color: var(--text-dim);
+      border-radius: 50%;
+      width: 28px; height: 28px;
+      font-size: 18px; line-height: 1;
+      cursor: pointer; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .card.error .retry-btn:hover { color: var(--accent); border-color: var(--accent); }
 
     .footer-add {
       display: flex; justify-content: center;
@@ -766,11 +779,22 @@
       return card;
     }
 
-    function makeErrorCard(id) {
-      return el('div', { class: 'card error' }, [
+    function makeErrorCard(id, reason, onRetry) {
+      var retryBtn = el('button', {
+        class: 'retry-btn', type: 'button',
+        title: 'Retry', 'aria-label': 'Retry loading'
+      });
+      retryBtn.textContent = '↻';
+      var card = el('div', { class: 'card error' }, [
         el('div', { class: 'err-id', text: '#' + id }),
-        el('div', { class: 'err-msg', text: 'Failed to load' })
+        el('div', { class: 'err-msg', text: reason || 'Failed to load' }),
+        retryBtn
       ]);
+      retryBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        if (onRetry) onRetry(card);
+      });
+      return card;
     }
 
     // ─── Group component ─────────────────────────────────────────
@@ -849,9 +873,23 @@
                     applyVoteUI(newVote);
                   });
                   grid.replaceChild(card, t.slot);
-                }).catch(function () {
+                }).catch(function (err) {
                   failed++;
-                  grid.replaceChild(makeErrorCard(t.id), t.slot);
+                  var reason = (err && err.message && err.message.indexOf('429') !== -1) ? 'Rate limited' : 'Failed to load';
+                  function attachErr(rsn, placeholder) {
+                    var errCard = makeErrorCard(t.id, rsn, function (oldCard) {
+                      var skel = makeSkeleton();
+                      grid.replaceChild(skel, oldCard);
+                      fetchGallery(t.id).then(function (info) {
+                        grid.replaceChild(makeCard(info, group, function (v) { applyVoteUI(v); }), skel);
+                      }).catch(function (retryErr) {
+                        var r = (retryErr && retryErr.message && retryErr.message.indexOf('429') !== -1) ? 'Rate limited' : 'Failed to load';
+                        attachErr(r, skel);
+                      });
+                    });
+                    grid.replaceChild(errCard, placeholder);
+                  }
+                  attachErr(reason, t.slot);
                 }).then(function () {
                   done++;
                   active--;
@@ -1125,34 +1163,58 @@
     });
 
     function makePreviewCard(id) {
-      var img = el('img', {
-        src: '', alt: '#' + id,
-        loading: 'lazy', referrerpolicy: 'no-referrer'
-      });
-      var card = el('div', { class: 'card', 'data-id': id }, [
-        el('div', { class: 'cover-wrap' }, [img]),
+      var card = el('a', {
+        class: 'card',
+        href: 'https://nhentai.net/g/' + id + '/',
+        target: '_blank', rel: 'noopener noreferrer',
+        'data-id': id
+      }, [
+        el('div', { class: 'cover-wrap shimmer' }),
         el('div', { class: 'meta' }, [
-          el('div', { class: 'title', text: '#' + id }),
-          el('div', { class: 'badges' }, [
-            el('span', { class: 'id', text: '#' + id })
-          ])
+          el('div', { class: 'line shimmer' }),
+          el('div', { class: 'line short shimmer' })
         ])
       ]);
-      var titleEl = card.querySelector('.title');
-      var badgesEl = card.querySelector('.badges');
-      fetchGallery(id).then(function (info) {
-        img.src = info.coverUrl;
-        img.alt = info.title;
-        titleEl.textContent = info.title;
-        badgesEl.innerHTML = '';
-        badgesEl.appendChild(el('span', { class: 'id', text: '#' + info.id }));
-        badgesEl.appendChild(el('span', { text: info.pages + 'p' }));
-      }).catch(function () {
-        card.classList.add('error');
-        card.innerHTML = '';
-        card.appendChild(el('div', { class: 'err-id', text: '#' + id }));
-        card.appendChild(el('div', { class: 'err-msg', text: 'Failed to load' }));
-      });
+
+      function loadCard() {
+        fetchGallery(id).then(function (info) {
+          card.classList.remove('error');
+          card.innerHTML = '';
+          card.appendChild(el('div', { class: 'cover-wrap' }, [
+            el('img', { src: info.coverUrl, alt: info.title, loading: 'lazy', referrerpolicy: 'no-referrer' })
+          ]));
+          card.appendChild(el('div', { class: 'meta' }, [
+            el('div', { class: 'title', text: info.title }),
+            el('div', { class: 'badges' }, [
+              el('span', { class: 'id', text: '#' + info.id }),
+              el('span', { text: info.pages + 'p' })
+            ])
+          ]));
+        }).catch(function (err) {
+          var reason = (err && err.message && err.message.indexOf('429') !== -1) ? 'Rate limited' : 'Failed to load';
+          card.classList.add('error');
+          card.innerHTML = '';
+          var retryBtn = el('button', { class: 'retry-btn', type: 'button', title: 'Retry', 'aria-label': 'Retry loading' });
+          retryBtn.textContent = '↻';
+          card.appendChild(el('div', { class: 'err-id', text: '#' + id }));
+          card.appendChild(el('div', { class: 'err-msg', text: reason }));
+          card.appendChild(retryBtn);
+          retryBtn.addEventListener('click', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            card.classList.remove('error');
+            card.innerHTML = '';
+            card.appendChild(el('div', { class: 'cover-wrap shimmer' }));
+            card.appendChild(el('div', { class: 'meta' }, [
+              el('div', { class: 'line shimmer' }),
+              el('div', { class: 'line short shimmer' })
+            ]));
+            loadCard();
+          });
+        });
+      }
+
+      loadCard();
       return card;
     }
 
