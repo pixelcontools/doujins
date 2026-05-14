@@ -481,10 +481,16 @@
     'use strict';
 
     // ─── Config ───────────────────────────────────────────────────
-    var PROXY = 'https://corsproxy.io/?url=';
+    var PROXIES = [
+      'https://corsproxy.io/?url=',
+      'https://api.allorigins.win/raw?url='
+    ];
+    var proxyIdx = 0;
     var API = 'https://nhentai.net/api/v2/galleries/';
     var THUMB_ROOT = 'https://t.nhentai.net/';
     var STORAGE_KEY = 'doujins-state-v1';
+    var COVER_CACHE_KEY = 'doujins-covers-v1';
+    var COVER_CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
 
     var SEED_GROUPS = [
       ['273216','102839','338327','608403','622842'],
@@ -535,6 +541,15 @@
     }
 
     var state = loadState();
+
+    // ─── Cover cache ──────────────────────────────────────────────
+    var coverCache = (function () {
+      try { return JSON.parse(localStorage.getItem(COVER_CACHE_KEY) || '{}'); }
+      catch (e) { return {}; }
+    })();
+    function saveCoverCache() {
+      try { localStorage.setItem(COVER_CACHE_KEY, JSON.stringify(coverCache)); } catch (e) {}
+    }
 
     function nextId(kind) {
       state.seq = state.seq || { round: 0, group: 0 };
@@ -656,32 +671,45 @@
       });
     }
 
-    function fetchGalleryOnce(id) {
-      var url = PROXY + encodeURIComponent(API + id);
-      return fetch(url, { method: 'GET' }).then(function (r) {
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        return r.json();
-      }).then(function (data) {
-        if (!data || !data.cover || !data.cover.path) throw new Error('Invalid response');
-        var title = (data.title && (data.title.pretty || data.title.english || data.title.japanese)) || ('#' + id);
-        return {
-          id: id,
-          title: title,
-          pages: data.num_pages || 0,
-          coverUrl: THUMB_ROOT + data.cover.path
-        };
-      });
-    }
+    function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
-    // Retries with exponential backoff (400ms, 1000ms). Total of 3 attempts.
-    function fetchGallery(id, attempts) {
-      attempts = attempts == null ? 3 : attempts;
-      return fetchGalleryOnce(id).catch(function (err) {
-        if (attempts <= 1) throw err;
-        var delay = attempts === 3 ? 400 : 1000;
-        return new Promise(function (resolve) { setTimeout(resolve, delay); })
-          .then(function () { return fetchGallery(id, attempts - 1); });
-      });
+    function fetchGallery(id) {
+      // Return cached result if fresh
+      var cached = coverCache[id];
+      if (cached && cached.info && (Date.now() - cached.ts < COVER_CACHE_TTL)) {
+        return Promise.resolve(cached.info);
+      }
+
+      // Try each proxy in order, rotating on 429
+      var startIdx = proxyIdx;
+      function attempt(i, triesLeft) {
+        var idx = i % PROXIES.length;
+        var url = PROXIES[idx] + encodeURIComponent(API + id);
+        return fetch(url).then(function (r) {
+          if (r.status === 429) {
+            proxyIdx = (idx + 1) % PROXIES.length;
+            if (triesLeft > 0) {
+              return wait(600).then(function () { return attempt(idx + 1, triesLeft - 1); });
+            }
+            throw new Error('HTTP 429');
+          }
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.json();
+        }).then(function (data) {
+          if (!data || !data.cover || !data.cover.path) throw new Error('Invalid response');
+          var title = (data.title && (data.title.pretty || data.title.english || data.title.japanese)) || ('#' + id);
+          var info = { id: id, title: title, pages: data.num_pages || 0, coverUrl: THUMB_ROOT + data.cover.path };
+          coverCache[id] = { info: info, ts: Date.now() };
+          saveCoverCache();
+          return info;
+        }).catch(function (err) {
+          if (triesLeft > 0 && err.message && err.message.indexOf('429') === -1) {
+            return wait(800).then(function () { return attempt(i, triesLeft - 1); });
+          }
+          throw err;
+        });
+      }
+      return attempt(startIdx, PROXIES.length + 1);
     }
 
     // ─── Card rendering ───────────────────────────────────────────
@@ -807,26 +835,38 @@
         retryBtn.disabled = true;
         retryBtn.style.display = 'none';
 
+        var CONCURRENCY = 3;
+        var queue = targets.slice();
+        var active = 0;
+
         return new Promise(function (resolve) {
-          targets.forEach(function (t) {
-            fetchGallery(t.id).then(function (info) {
-              var card = makeCard(info, group, function (newVote) {
-                applyVoteUI(newVote);
-              });
-              grid.replaceChild(card, t.slot);
-            }).catch(function () {
-              failed++;
-              grid.replaceChild(makeErrorCard(t.id), t.slot);
-            }).then(function () {
-              done++;
-              if (done < total) {
-                status.textContent = 'Loading ' + done + '/' + total + '…';
-              } else {
-                loadBtn.disabled = false;
-                resolve(failed);
-              }
-            });
-          });
+          function next() {
+            while (active < CONCURRENCY && queue.length) {
+              active++;
+              (function (t) {
+                fetchGallery(t.id).then(function (info) {
+                  var card = makeCard(info, group, function (newVote) {
+                    applyVoteUI(newVote);
+                  });
+                  grid.replaceChild(card, t.slot);
+                }).catch(function () {
+                  failed++;
+                  grid.replaceChild(makeErrorCard(t.id), t.slot);
+                }).then(function () {
+                  done++;
+                  active--;
+                  if (done < total) {
+                    status.textContent = 'Loading ' + done + '/' + total + '…';
+                    next();
+                  } else {
+                    loadBtn.disabled = false;
+                    resolve(failed);
+                  }
+                });
+              })(queue.shift());
+            }
+          }
+          next();
         });
       }
 
